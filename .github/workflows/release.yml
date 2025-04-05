@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  VERSION: 1.0.0
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 8.x
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Generate build version
+      id: version
+      run: |
+        DATE=$(date +'%Y%m%d')
+        COMMIT_SHA=$(git rev-parse --short HEAD)
+        echo "version=${VERSION}+${DATE}.${GITHUB_RUN_NUMBER}.${COMMIT_SHA}" >> $GITHUB_OUTPUT
+
+    - name: Publish Windows binary
+      run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/win
+
+    - name: Publish macOS binary
+      run: dotnet publish -c Release -r osx-x64 --self-contained true -p:PublishSingleFile=true -o publish/osx
+
+    - name: Publish Linux binary
+      run: dotnet publish -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -o publish/linux
+
+    - name: Create release assets
+      run: |
+        mkdir artifacts
+        cd publish/win && zip -r ../../artifacts/atlas-generator-win-x64.zip ./*
+        cd ../osx && zip -r ../../artifacts/atlas-generator-macos-x64.zip ./*
+        cd ../linux && zip -r ../../artifacts/atlas-generator-linux-x64.zip ./*
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Atlas Generator ${{ steps.version.outputs.version }}
+        tag_name: v${{ steps.version.outputs.version }}
+        body: |
+          Automated build for Atlas Generator
+          - Version: ${{ steps.version.outputs.version }}
+          - Commit: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+        files: |
+          artifacts/*.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
